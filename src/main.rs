@@ -60,48 +60,78 @@ fn main() -> ! {
         P_EXTI.borrow(cs).replace(Some(p.EXTI));
     });
 
+    enum Roulette {
+        Green,
+        Orange,
+        Red,
+        Blue,
+    }
+    enum Blink {
+        On,
+        Off,
+    }
+
+    let mut roulette_state: Roulette = Roulette::Green;
+    let mut blink_state: Blink = Blink::On;
+
     loop {
         let is_roulette = cortex_m::interrupt::free(|cs| IS_ROULETTE.borrow(cs).get());
         if is_roulette {
-            cortex_m::interrupt::free(|cs| {
+            blink_state = Blink::On;
+            roulette_state = cortex_m::interrupt::free(|cs| {
                 let gpiod = P_GPIOD.borrow(cs).borrow();
-                gpiod.as_ref().unwrap().bsrr.write(|w| w.br15().reset());
-                gpiod.as_ref().unwrap().bsrr.write(|w| w.bs12().set_bit());
-            });
-            delay(2_000_000);
-            cortex_m::interrupt::free(|cs| {
-                let gpiod = P_GPIOD.borrow(cs).borrow();
-                gpiod.as_ref().unwrap().bsrr.write(|w| w.br12().reset());
-                gpiod.as_ref().unwrap().bsrr.write(|w| w.bs13().set_bit());
-            });
-            delay(2_000_000);
-            cortex_m::interrupt::free(|cs| {
-                let gpiod = P_GPIOD.borrow(cs).borrow();
-                gpiod.as_ref().unwrap().bsrr.write(|w| w.br13().reset());
-                gpiod.as_ref().unwrap().bsrr.write(|w| w.bs14().set_bit());
-            });
-            delay(2_000_000);
-            cortex_m::interrupt::free(|cs| {
-                let gpiod = P_GPIOD.borrow(cs).borrow();
-                gpiod.as_ref().unwrap().bsrr.write(|w| w.br14().reset());
-                gpiod.as_ref().unwrap().bsrr.write(|w| w.bs15().set_bit());
+                match roulette_state {
+                    Roulette::Green => {
+                        gpiod.as_ref().unwrap().bsrr.write(|w| w.bs12().set_bit());
+                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br13().set_bit());
+                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br14().set_bit());
+                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br15().set_bit());
+                        Roulette::Orange
+                    }
+                    Roulette::Orange => {
+                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br12().set_bit());
+                        gpiod.as_ref().unwrap().bsrr.write(|w| w.bs13().set_bit());
+                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br14().set_bit());
+                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br15().set_bit());
+                        Roulette::Red
+                    }
+                    Roulette::Red => {
+                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br12().set_bit());
+                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br13().set_bit());
+                        gpiod.as_ref().unwrap().bsrr.write(|w| w.bs14().set_bit());
+                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br15().set_bit());
+                        Roulette::Blue
+                    }
+                    Roulette::Blue => {
+                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br12().set_bit());
+                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br13().set_bit());
+                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br14().set_bit());
+                        gpiod.as_ref().unwrap().bsrr.write(|w| w.bs15().set_bit());
+                        Roulette::Green
+                    }
+                }
             });
             delay(2_000_000);
         } else {
-            cortex_m::interrupt::free(|cs| {
+            roulette_state = Roulette::Green;
+            blink_state = cortex_m::interrupt::free(|cs| {
                 let gpiod = P_GPIOD.borrow(cs).borrow();
-                gpiod.as_ref().unwrap().bsrr.write(|w| w.bs12().set_bit());
-                gpiod.as_ref().unwrap().bsrr.write(|w| w.bs13().set_bit());
-                gpiod.as_ref().unwrap().bsrr.write(|w| w.bs14().set_bit());
-                gpiod.as_ref().unwrap().bsrr.write(|w| w.bs15().set_bit());
-            });
-            delay(8_000_000);
-            cortex_m::interrupt::free(|cs| {
-                let gpiod = P_GPIOD.borrow(cs).borrow();
-                gpiod.as_ref().unwrap().bsrr.write(|w| w.br12().reset());
-                gpiod.as_ref().unwrap().bsrr.write(|w| w.br13().reset());
-                gpiod.as_ref().unwrap().bsrr.write(|w| w.br14().reset());
-                gpiod.as_ref().unwrap().bsrr.write(|w| w.br15().reset());
+                match blink_state {
+                    Blink::On => {
+                        gpiod.as_ref().unwrap().bsrr.write(|w| w.bs12().set_bit());
+                        gpiod.as_ref().unwrap().bsrr.write(|w| w.bs13().set_bit());
+                        gpiod.as_ref().unwrap().bsrr.write(|w| w.bs14().set_bit());
+                        gpiod.as_ref().unwrap().bsrr.write(|w| w.bs15().set_bit());
+                        Blink::Off
+                    }
+                    Blink::Off => {
+                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br12().set_bit());
+                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br13().set_bit());
+                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br14().set_bit());
+                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br15().set_bit());
+                        Blink::On
+                    }
+                }
             });
             delay(8_000_000);
         }

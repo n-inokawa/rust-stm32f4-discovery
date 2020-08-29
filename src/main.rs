@@ -9,6 +9,15 @@ use cortex_m::{self, asm::delay, interrupt::Mutex};
 use cortex_m_rt::entry;
 use stm32f4::stm32f407::{self, interrupt};
 
+enum Led {
+    Green,
+    Orange,
+    Red,
+    Blue,
+    All,
+    Off,
+}
+
 static P_GPIOD: Mutex<RefCell<Option<stm32f407::GPIOD>>> = Mutex::new(RefCell::new(None));
 static P_GPIOA: Mutex<RefCell<Option<stm32f407::GPIOA>>> = Mutex::new(RefCell::new(None));
 static P_EXTI: Mutex<RefCell<Option<stm32f407::EXTI>>> = Mutex::new(RefCell::new(None));
@@ -20,19 +29,25 @@ fn main() -> ! {
     let p = stm32f407::Peripherals::take().unwrap();
     {
         // Setup PD12~PD15 for User leds
+        // enable clock
         p.RCC.ahb1enr.modify(|_, w| w.gpioden().set_bit());
         let gpiod = &p.GPIOD;
-        gpiod.moder.modify(|_, w| w.moder12().output());
-        gpiod.moder.modify(|_, w| w.moder13().output());
-        gpiod.moder.modify(|_, w| w.moder14().output());
-        gpiod.moder.modify(|_, w| w.moder15().output());
+        // set output
+        gpiod.moder.modify(|_, w| {
+            w.moder12().output();
+            w.moder13().output();
+            w.moder14().output();
+            w.moder15().output()
+        });
 
         // Setup PA0 for User switch
+        // enable clock
         p.RCC.ahb1enr.modify(|_, w| w.gpioaen().set_bit());
         let gpioa = &p.GPIOA;
+        // set input
         gpioa.moder.modify(|_, w| w.moder0().input());
         // pull-down
-        gpioa.pupdr.modify(|_, w| unsafe { w.pupdr0().bits(0b10) });
+        gpioa.pupdr.modify(|_, w| w.pupdr0().pull_down());
 
         // Setup EXTI0 for PA0
         p.RCC.apb2enr.modify(|_, w| w.syscfgen().set_bit());
@@ -60,81 +75,83 @@ fn main() -> ! {
         P_EXTI.borrow(cs).replace(Some(p.EXTI));
     });
 
-    enum Roulette {
-        Green,
-        Orange,
-        Red,
-        Blue,
-    }
-    enum Blink {
-        On,
-        Off,
-    }
-
-    let mut roulette_state: Roulette = Roulette::Green;
-    let mut blink_state: Blink = Blink::On;
+    let mut led: Led = Led::Off;
 
     loop {
         let is_roulette = cortex_m::interrupt::free(|cs| IS_ROULETTE.borrow(cs).get());
-        if is_roulette {
-            blink_state = Blink::On;
-            roulette_state = cortex_m::interrupt::free(|cs| {
-                let gpiod = P_GPIOD.borrow(cs).borrow();
-                match roulette_state {
-                    Roulette::Green => {
-                        gpiod.as_ref().unwrap().bsrr.write(|w| w.bs12().set_bit());
-                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br13().set_bit());
-                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br14().set_bit());
-                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br15().set_bit());
-                        Roulette::Orange
-                    }
-                    Roulette::Orange => {
-                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br12().set_bit());
-                        gpiod.as_ref().unwrap().bsrr.write(|w| w.bs13().set_bit());
-                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br14().set_bit());
-                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br15().set_bit());
-                        Roulette::Red
-                    }
-                    Roulette::Red => {
-                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br12().set_bit());
-                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br13().set_bit());
-                        gpiod.as_ref().unwrap().bsrr.write(|w| w.bs14().set_bit());
-                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br15().set_bit());
-                        Roulette::Blue
-                    }
-                    Roulette::Blue => {
-                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br12().set_bit());
-                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br13().set_bit());
-                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br14().set_bit());
-                        gpiod.as_ref().unwrap().bsrr.write(|w| w.bs15().set_bit());
-                        Roulette::Green
-                    }
-                }
-            });
-            delay(2_000_000);
+        let delay_time = if is_roulette {
+            led = match led {
+                Led::Green => Led::Orange,
+                Led::Orange => Led::Red,
+                Led::Red => Led::Blue,
+                Led::Blue => Led::Green,
+                _ => Led::Green,
+            };
+            2_000_000
         } else {
-            roulette_state = Roulette::Green;
-            blink_state = cortex_m::interrupt::free(|cs| {
-                let gpiod = P_GPIOD.borrow(cs).borrow();
-                match blink_state {
-                    Blink::On => {
-                        gpiod.as_ref().unwrap().bsrr.write(|w| w.bs12().set_bit());
-                        gpiod.as_ref().unwrap().bsrr.write(|w| w.bs13().set_bit());
-                        gpiod.as_ref().unwrap().bsrr.write(|w| w.bs14().set_bit());
-                        gpiod.as_ref().unwrap().bsrr.write(|w| w.bs15().set_bit());
-                        Blink::Off
-                    }
-                    Blink::Off => {
-                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br12().set_bit());
-                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br13().set_bit());
-                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br14().set_bit());
-                        gpiod.as_ref().unwrap().bsrr.write(|w| w.br15().set_bit());
-                        Blink::On
-                    }
+            led = match led {
+                Led::All => Led::Off,
+                Led::Off => Led::All,
+                _ => Led::All,
+            };
+            8_000_000
+        };
+
+        cortex_m::interrupt::free(|cs| {
+            let gpiod = P_GPIOD.borrow(cs).borrow();
+            match led {
+                Led::Green => {
+                    gpiod.as_ref().unwrap().bsrr.write(|w| {
+                        w.bs12().set_bit();
+                        w.br13().set_bit();
+                        w.br14().set_bit();
+                        w.br15().set_bit()
+                    });
                 }
-            });
-            delay(8_000_000);
-        }
+                Led::Orange => {
+                    gpiod.as_ref().unwrap().bsrr.write(|w| {
+                        w.br12().set_bit();
+                        w.bs13().set_bit();
+                        w.br14().set_bit();
+                        w.br15().set_bit()
+                    });
+                }
+                Led::Red => {
+                    gpiod.as_ref().unwrap().bsrr.write(|w| {
+                        w.br12().set_bit();
+                        w.br13().set_bit();
+                        w.bs14().set_bit();
+                        w.br15().set_bit()
+                    });
+                }
+                Led::Blue => {
+                    gpiod.as_ref().unwrap().bsrr.write(|w| {
+                        w.br12().set_bit();
+                        w.br13().set_bit();
+                        w.br14().set_bit();
+                        w.bs15().set_bit()
+                    });
+                }
+                Led::All => {
+                    gpiod.as_ref().unwrap().bsrr.write(|w| {
+                        w.bs12().set_bit();
+                        w.bs13().set_bit();
+                        w.bs14().set_bit();
+                        w.bs15().set_bit()
+                    });
+                }
+                Led::Off => {
+                    gpiod.as_ref().unwrap().bsrr.write(|w| {
+                        w.br12().set_bit();
+                        w.br13().set_bit();
+                        w.br14().set_bit();
+                        w.br15().set_bit()
+                    });
+                }
+            };
+        });
+
+        delay(delay_time);
     }
 }
 
@@ -144,12 +161,9 @@ fn EXTI0() {
         // clear pending register
         let exti = P_EXTI.borrow(cs).borrow();
         exti.as_ref().unwrap().pr.modify(|_, w| w.pr0().set_bit());
-    });
-    cortex_m::interrupt::free(|cs| {
-        let is_set = {
-            let gpioa = P_GPIOA.borrow(cs).borrow();
-            gpioa.as_ref().unwrap().idr.read().idr0().bit_is_set()
-        };
+
+        let gpioa = P_GPIOA.borrow(cs).borrow();
+        let is_set = gpioa.as_ref().unwrap().idr.read().idr0().bit_is_set();
         IS_ROULETTE.borrow(cs).set(is_set);
     });
 }

@@ -5,8 +5,8 @@ use core::cell::RefCell;
 
 use panic_halt as _; // you can put a breakpoint on `rust_begin_unwind` to catch panics
 
-use cortex_m::{self, asm::delay, interrupt::Mutex};
-use cortex_m_rt::entry;
+use cortex_m::{self, asm::delay, interrupt::Mutex, peripheral::syst::SystClkSource};
+use cortex_m_rt::{entry, exception};
 use stm32f4::stm32f407;
 
 mod lis302dl;
@@ -19,6 +19,7 @@ static P_SPI1: Mutex<RefCell<Option<stm32f407::SPI1>>> = Mutex::new(RefCell::new
 
 #[entry]
 fn main() -> ! {
+    let c_p = cortex_m::Peripherals::take().unwrap();
     let p = stm32f407::Peripherals::take().unwrap();
     {
         // Setup PD12~PD15 for User leds
@@ -88,6 +89,14 @@ fn main() -> ! {
             w.spe().enabled()
         });
         // CR2 is all default
+
+        // Setup SysTick for interrupt
+        let mut syst = c_p.SYST;
+        syst.set_clock_source(SystClkSource::Core);
+        // HSI used for system clock is 16MHz
+        syst.set_reload(16_000_000 - 1);
+        syst.enable_interrupt();
+        syst.enable_counter();
     }
 
     // Share peripherals with mutex
@@ -160,4 +169,17 @@ fn main() -> ! {
 
         delay(1_000_000);
     }
+}
+
+#[exception]
+fn SysTick() {
+    cortex_m::interrupt::free(|cs| {
+        let gpiod = P_GPIOD.borrow(cs).borrow();
+        gpiod.as_ref().unwrap().bsrr.write(|w| {
+            w.bs12().set_bit();
+            w.bs13().set_bit();
+            w.bs14().set_bit();
+            w.bs15().set_bit()
+        });
+    });
 }

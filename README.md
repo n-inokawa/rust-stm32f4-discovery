@@ -8,7 +8,7 @@ This is built with template from https://github.com/rust-embedded/cortex-m-quick
 
 Follow https://rust-embedded.github.io/book/intro/install.html (or https://tomoyuki-nakabayashi.github.io/book/intro/install.html in Japanese).
 
-## Debug
+## Flash
 
 Connect board to PC with USB.
 
@@ -22,8 +22,7 @@ And run in the other terminal
 
 ```
 cargo run
+# cargo run --release
 ```
 
-## Release
-
-WIP
+And enter `continue` twice.

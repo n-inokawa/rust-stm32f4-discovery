@@ -9,8 +9,7 @@ use cortex_m::{self, asm::delay, interrupt::Mutex, peripheral::syst::SystClkSour
 use cortex_m_rt::{entry, exception};
 use stm32f4::stm32f407;
 
-mod lis302dl;
-mod spi;
+use rust_stm32f4_discovery::{lis302dl, spi};
 
 static P_GPIOA: Mutex<RefCell<Option<stm32f407::GPIOA>>> = Mutex::new(RefCell::new(None));
 static P_GPIOD: Mutex<RefCell<Option<stm32f407::GPIOD>>> = Mutex::new(RefCell::new(None));

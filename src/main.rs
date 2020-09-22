@@ -5,7 +5,7 @@ use core::cell::RefCell;
 
 use panic_halt as _; // you can put a breakpoint on `rust_begin_unwind` to catch panics
 
-use cortex_m::{self, asm::delay, interrupt::Mutex, peripheral::syst::SystClkSource};
+use cortex_m::{self, asm, interrupt::Mutex, peripheral::syst::SystClkSource};
 use cortex_m_rt::{entry, exception};
 use stm32f4::stm32f407;
 
@@ -15,6 +15,8 @@ static P_GPIOA: Mutex<RefCell<Option<stm32f407::GPIOA>>> = Mutex::new(RefCell::n
 static P_GPIOD: Mutex<RefCell<Option<stm32f407::GPIOD>>> = Mutex::new(RefCell::new(None));
 static P_GPIOE: Mutex<RefCell<Option<stm32f407::GPIOE>>> = Mutex::new(RefCell::new(None));
 static P_SPI1: Mutex<RefCell<Option<stm32f407::SPI1>>> = Mutex::new(RefCell::new(None));
+
+static COUNT_MAX: u8 = 60;
 
 #[entry]
 fn main() -> ! {
@@ -93,7 +95,7 @@ fn main() -> ! {
         let mut syst = c_p.SYST;
         syst.set_clock_source(SystClkSource::Core);
         // HSI used for system clock is 16MHz
-        syst.set_reload(16_000_000 - 1);
+        syst.set_reload(16_000_000 / COUNT_MAX as u32 - 1);
         syst.enable_interrupt();
         syst.enable_counter();
     }
@@ -106,6 +108,7 @@ fn main() -> ! {
         P_SPI1.borrow(cs).replace(Some(p.SPI1));
     });
 
+    // Initialize LIS302DL
     cortex_m::interrupt::free(|cs| {
         let gpioe = P_GPIOE.borrow(cs).borrow();
         let spi1 = P_SPI1.borrow(cs).borrow();
@@ -120,65 +123,103 @@ fn main() -> ! {
     });
 
     loop {
-        let (x, y, z) = cortex_m::interrupt::free(|cs| {
-            let gpioe = P_GPIOE.borrow(cs).borrow();
-            let spi1 = P_SPI1.borrow(cs).borrow();
-
-            gpioe.as_ref().unwrap().bsrr.write(|w| w.br3().set_bit());
-            let x = spi::read(&spi1.as_ref().unwrap(), lis302dl::REG_OUT_X);
-            gpioe.as_ref().unwrap().bsrr.write(|w| w.bs3().set_bit());
-
-            gpioe.as_ref().unwrap().bsrr.write(|w| w.br3().set_bit());
-            let y = spi::read(&spi1.as_ref().unwrap(), lis302dl::REG_OUT_Y);
-            gpioe.as_ref().unwrap().bsrr.write(|w| w.bs3().set_bit());
-
-            gpioe.as_ref().unwrap().bsrr.write(|w| w.br3().set_bit());
-            let z = spi::read(&spi1.as_ref().unwrap(), lis302dl::REG_OUT_Z);
-            gpioe.as_ref().unwrap().bsrr.write(|w| w.bs3().set_bit());
-
-            (x, y, z)
-        });
-
-        cortex_m::interrupt::free(|cs| {
-            let gpiod = P_GPIOD.borrow(cs).borrow();
-            gpiod.as_ref().unwrap().bsrr.write(|w| {
-                if x > 0x00 && x < 0x40 {
-                    w.br13().set_bit();
-                    w.bs15().set_bit();
-                } else if x > 0xA0 && x < 0xFE {
-                    w.bs13().set_bit();
-                    w.br15().set_bit();
-                } else {
-                    w.br13().set_bit();
-                    w.br15().set_bit();
-                }
-                if y > 0x00 && y < 0x40 {
-                    w.br12().set_bit();
-                    w.bs14().set_bit();
-                } else if y > 0xA0 && y < 0xFE {
-                    w.bs12().set_bit();
-                    w.br14().set_bit();
-                } else {
-                    w.br12().set_bit();
-                    w.br14().set_bit();
-                }
-                w
-            });
-        });
-
-        delay(1_000_000);
+        asm::nop();
     }
 }
 
 #[exception]
 fn SysTick() {
-    cortex_m::interrupt::free(|cs| {
-        let gpiod = P_GPIOD.borrow(cs).borrow();
-        gpiod.as_ref().unwrap().bsrr.write(|w| {
-            w.bs12().set_bit();
-            w.bs13().set_bit();
-            w.bs14().set_bit();
-            w.bs15().set_bit()
-        });
+    static mut COUNT_G: u8 = 0;
+    static mut COUNT_R: u8 = 0;
+    static mut COUNT_B: u8 = 0;
+    static mut COUNT_O: u8 = 0;
+
+    let (x, y, z) = cortex_m::interrupt::free(|cs| {
+        let gpioe = P_GPIOE.borrow(cs).borrow();
+        let spi1 = P_SPI1.borrow(cs).borrow();
+
+        gpioe.as_ref().unwrap().bsrr.write(|w| w.br3().set_bit());
+        let x = spi::read(&spi1.as_ref().unwrap(), lis302dl::REG_OUT_X) as u8;
+        gpioe.as_ref().unwrap().bsrr.write(|w| w.bs3().set_bit());
+
+        gpioe.as_ref().unwrap().bsrr.write(|w| w.br3().set_bit());
+        let y = spi::read(&spi1.as_ref().unwrap(), lis302dl::REG_OUT_Y) as u8;
+        gpioe.as_ref().unwrap().bsrr.write(|w| w.bs3().set_bit());
+
+        gpioe.as_ref().unwrap().bsrr.write(|w| w.br3().set_bit());
+        let z = spi::read(&spi1.as_ref().unwrap(), lis302dl::REG_OUT_Z) as u8;
+        gpioe.as_ref().unwrap().bsrr.write(|w| w.bs3().set_bit());
+
+        (x, y, z)
     });
+
+    match x {
+        0x00...0x7F => {
+            *COUNT_G += 1 + (COUNT_MAX - 1) * ((0x7F - x) / 0x7F);
+            *COUNT_R += 1;
+        }
+        0x80...0xFF => {
+            *COUNT_G += 1;
+            *COUNT_R += 1 + (COUNT_MAX - 1) * ((x - 0x80) / 0x7F);
+        }
+    }
+    match y {
+        0x00...0x7F => {
+            *COUNT_B += 1 + (COUNT_MAX - 1) * ((0x7F - y) / 0x7F);
+            *COUNT_O += 1;
+        }
+        0x80...0xFF => {
+            *COUNT_B += 1;
+            *COUNT_O += 1 + (COUNT_MAX - 1) * ((y - 0x80) / 0x7F);
+        }
+    }
+
+    if *COUNT_G >= COUNT_MAX {
+        *COUNT_G = 0;
+        cortex_m::interrupt::free(|cs| {
+            let gpiod = P_GPIOD.borrow(cs).borrow();
+            let gpiod_ref = gpiod.as_ref().unwrap();
+            if gpiod_ref.idr.read().idr15().bit_is_set() {
+                gpiod_ref.bsrr.write(|w| w.br15().set_bit());
+            } else {
+                gpiod_ref.bsrr.write(|w| w.bs15().set_bit());
+            }
+        });
+    }
+    if *COUNT_R >= COUNT_MAX {
+        *COUNT_R = 0;
+        cortex_m::interrupt::free(|cs| {
+            let gpiod = P_GPIOD.borrow(cs).borrow();
+            let gpiod_ref = gpiod.as_ref().unwrap();
+            if gpiod_ref.idr.read().idr13().bit_is_set() {
+                gpiod_ref.bsrr.write(|w| w.br13().set_bit());
+            } else {
+                gpiod_ref.bsrr.write(|w| w.bs13().set_bit());
+            }
+        });
+    }
+    if *COUNT_B >= COUNT_MAX {
+        *COUNT_B = 0;
+        cortex_m::interrupt::free(|cs| {
+            let gpiod = P_GPIOD.borrow(cs).borrow();
+            let gpiod_ref = gpiod.as_ref().unwrap();
+            if gpiod_ref.idr.read().idr14().bit_is_set() {
+                gpiod_ref.bsrr.write(|w| w.br14().set_bit());
+            } else {
+                gpiod_ref.bsrr.write(|w| w.bs14().set_bit());
+            }
+        });
+    }
+    if *COUNT_O >= COUNT_MAX {
+        *COUNT_O = 0;
+        cortex_m::interrupt::free(|cs| {
+            let gpiod = P_GPIOD.borrow(cs).borrow();
+            let gpiod_ref = gpiod.as_ref().unwrap();
+            if gpiod_ref.idr.read().idr12().bit_is_set() {
+                gpiod_ref.bsrr.write(|w| w.br12().set_bit());
+            } else {
+                gpiod_ref.bsrr.write(|w| w.bs12().set_bit());
+            }
+        });
+    }
 }

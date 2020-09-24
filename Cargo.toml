@@ -1,5 +1,5 @@
 [package]
-authors = ["n-inokawa <48897392+n-inokawa@users.noreply.github.com>"]
+authors = ["inokawa <48897392+inokawa@users.noreply.github.com>"]
 edition = "2018"
 readme = "README.md"
 name = "rust-stm32f4-discovery"

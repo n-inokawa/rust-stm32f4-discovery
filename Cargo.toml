@@ -13,7 +13,7 @@ panic-halt = "0.2.0"
 
 [dependencies.stm32f4]
 features = ["stm32f407", "rt"]
-version = "0.12.0"
+version = "0.12.1"
 
 [[bin]]
 name = "rust-stm32f4-discovery"
